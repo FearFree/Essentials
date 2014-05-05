@@ -49,12 +49,8 @@ public class OverloadedWorldHolder extends WorldDataHolder {
 			return overloadedUsers.get(userNameLowered);
 		}
 		//END CODE
-		if (getUsers().containsKey(userNameLowered)) {
-			return getUsers().get(userNameLowered);
-		}
-		User newUser = createUser(userName);
-		setUsersChanged(true);
-		return newUser;
+
+		return super.getUser(userName);
 	}
 
 	/**
@@ -74,33 +70,33 @@ public class OverloadedWorldHolder extends WorldDataHolder {
 			theUser.setGroup(getDefaultGroup());
 		}
 		//OVERLOADED CODE
-		if (overloadedUsers.containsKey(theUser.getName().toLowerCase())) {
-			overloadedUsers.remove(theUser.getName().toLowerCase());
-			overloadedUsers.put(theUser.getName().toLowerCase(), theUser);
+		if (overloadedUsers.containsKey(theUser.getUUID().toLowerCase())) {
+			overloadedUsers.remove(theUser.getUUID().toLowerCase());
+			overloadedUsers.put(theUser.getUUID().toLowerCase(), theUser);
 			return;
 		}
 		//END CODE
-		removeUser(theUser.getName());
-		getUsers().put(theUser.getName().toLowerCase(), theUser);
+		removeUser(theUser.getUUID());
+		getUsers().put(theUser.getUUID().toLowerCase(), theUser);
 		setUsersChanged(true);
 	}
 
 	/**
 	 * 
-	 * @param userName
+	 * @param userId
 	 * @return true if removed/false if not found.
 	 */
 	@Override
-	public boolean removeUser(String userName) {
+	public boolean removeUser(String userId) {
 
 		//OVERLOADED CODE
-		if (overloadedUsers.containsKey(userName.toLowerCase())) {
-			overloadedUsers.remove(userName.toLowerCase());
+		if (overloadedUsers.containsKey(userId.toLowerCase())) {
+			overloadedUsers.remove(userId.toLowerCase());
 			return true;
 		}
 		//END CODE
-		if (getUsers().containsKey(userName.toLowerCase())) {
-			getUsers().remove(userName.toLowerCase());
+		if (getUsers().containsKey(userId.toLowerCase())) {
+			getUsers().remove(userId.toLowerCase());
 			setUsersChanged(true);
 			return true;
 		}
@@ -156,8 +152,8 @@ public class OverloadedWorldHolder extends WorldDataHolder {
 		synchronized(getUsers()) {
 		Collection<User> normalList = getUsers().values();
 		for (User u : normalList) {
-			if (overloadedUsers.containsKey(u.getName().toLowerCase())) {
-				overloadedList.add(overloadedUsers.get(u.getName().toLowerCase()));
+			if (overloadedUsers.containsKey(u.getUUID().toLowerCase())) {
+				overloadedList.add(overloadedUsers.get(u.getUUID().toLowerCase()));
 			} else {
 				overloadedList.add(u);
 			}
@@ -168,37 +164,38 @@ public class OverloadedWorldHolder extends WorldDataHolder {
 
 	/**
 	 * 
-	 * @param userName
+	 * @param userId
 	 * @return true if user is overloaded.
 	 */
-	public boolean isOverloaded(String userName) {
+	public boolean isOverloaded(String userId) {
 
-		return overloadedUsers.containsKey(userName.toLowerCase());
+		return overloadedUsers.containsKey(userId.toLowerCase());
 	}
 
 	/**
 	 * 
-	 * @param userName
+	 * @param userId
 	 */
-	public void overloadUser(String userName) {
+	public void overloadUser(String userId) {
 
-		if (!isOverloaded(userName)) {
-			User theUser = getUser(userName);
+		if (!isOverloaded(userId)) {
+			User theUser = getUser(userId);
 			theUser = theUser.clone();
-			if (overloadedUsers.containsKey(theUser.getName().toLowerCase())) {
-				overloadedUsers.remove(theUser.getName().toLowerCase());
+			if (overloadedUsers.containsKey(theUser.getUUID().toLowerCase())) {
+				overloadedUsers.remove(theUser.getUUID().toLowerCase());
 			}
-			overloadedUsers.put(theUser.getName().toLowerCase(), theUser);
+			overloadedUsers.put(theUser.getUUID().toLowerCase(), theUser);
 		}
 	}
 
 	/**
 	 * 
-	 * @param userName
+	 * @param userId
 	 */
-	public void removeOverload(String userName) {
+	public void removeOverload(String userId) {
 
-		overloadedUsers.remove(userName.toLowerCase());
+		User theUser = getUser(userId);
+		overloadedUsers.remove(theUser.getUUID().toLowerCase());
 	}
 
 	/**
@@ -206,18 +203,18 @@ public class OverloadedWorldHolder extends WorldDataHolder {
 	 * It doesn't affect permissions. But it enables plugins change the
 	 * actual user permissions even in overload mode.
 	 * 
-	 * @param userName
+	 * @param userId
 	 * @return user object
 	 */
-	public User surpassOverload(String userName) {
+	public User surpassOverload(String userId) {
 
-		if (!isOverloaded(userName)) {
-			return getUser(userName);
+		if (!isOverloaded(userId)) {
+			return getUser(userId);
 		}
-		if (getUsers().containsKey(userName.toLowerCase())) {
-			return getUsers().get(userName.toLowerCase());
+		if (getUsers().containsKey(userId.toLowerCase())) {
+			return getUsers().get(userId.toLowerCase());
 		}
-		User newUser = createUser(userName);
+		User newUser = createUser(userId);
 		return newUser;
 	}
 }

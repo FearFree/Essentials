@@ -51,8 +51,12 @@ public class User extends DataUnit implements Cloneable {
 	@Override
 	public User clone() {
 
-		User clone = new User(getDataSource(), this.getName());
+		User clone = new User(getDataSource(), this.getLastName());
 		clone.group = this.group;
+		
+		// Clone all subgroups.
+		clone.subGroups.addAll(this.subGroupListStringCopy());
+		
 		for (String perm : this.getPermissionList()) {
 			clone.addPermission(perm);
 		}
@@ -69,20 +73,49 @@ public class User extends DataUnit implements Cloneable {
 	 */
 	public User clone(WorldDataHolder dataSource) {
 
-		if (dataSource.isUserDeclared(this.getName())) {
+		if (dataSource.isUserDeclared(this.getUUID())) {
 			return null;
 		}
-		User clone = dataSource.createUser(this.getName());
+		
+		User clone = dataSource.createUser(this.getUUID());
+		
 		if (dataSource.getGroup(group) == null) {
 			clone.setGroup(dataSource.getDefaultGroup());
 		} else {
 			clone.setGroup(dataSource.getGroup(this.getGroupName()));
 		}
+		
+		// Clone all subgroups.
+		clone.subGroups.addAll(this.subGroupListStringCopy());
+				
 		for (String perm : this.getPermissionList()) {
 			clone.addPermission(perm);
 		}
+		
 		clone.variables = this.variables.clone(this);
 		clone.flagAsChanged();
+		return clone;
+	}
+	
+	public User clone(String uUID, String CurrentName) {
+
+		User clone = this.getDataSource().createUser(uUID);
+		
+		clone.setLastName(CurrentName);
+		
+		// Set the group silently.
+		clone.setGroup(this.getDataSource().getGroup(this.getGroupName()), false);
+		
+		// Clone all subgroups.
+		clone.subGroups.addAll(this.subGroupListStringCopy());
+		
+		for (String perm : this.getPermissionList()) {
+			clone.addPermission(perm);
+		}
+		
+		clone.variables = this.variables.clone(this);
+		clone.flagAsChanged();
+		
 		return clone;
 	}
 
@@ -106,6 +139,19 @@ public class User extends DataUnit implements Cloneable {
 			group = getDataSource().getDefaultGroup().getName();
 		}
 		return group;
+	}
+	
+	/**
+	 * Place holder to let people know to stop using this method.
+	 * 
+	 * @deprecated use {@link #getLastName()} and {@link #getUUID()}.
+	 * @return a string containing the players last known name.
+	 */
+	@Deprecated
+	public String getName() {
+		
+		return this.getLastName();
+		
 	}
 
 
@@ -144,9 +190,10 @@ public class User extends DataUnit implements Cloneable {
 			boolean notify = (!oldGroup.equalsIgnoreCase(defaultGroupName)) || ((oldGroup.equalsIgnoreCase(defaultGroupName)) && (!this.group.equalsIgnoreCase(defaultGroupName)));
 
 			if (notify)
-				GroupManager.notify(this.getName(), String.format(" moved to the group %s in %s.", group.getName(), this.getDataSource().getName()));
+				GroupManager.notify(this.getLastName(), String.format(" moved to the group %s in %s.", group.getName(), this.getDataSource().getName()));
 
-			GroupManager.getGMEventHandler().callEvent(this, Action.USER_GROUP_CHANGED);
+			if (updatePerms)
+				GroupManager.getGMEventHandler().callEvent(this, Action.USER_GROUP_CHANGED);
 		}
 	}
 
@@ -269,7 +316,7 @@ public class User extends DataUnit implements Cloneable {
 	public Player getBukkitPlayer() {
 
 		if (bukkitPlayer == null) {
-			bukkitPlayer = Bukkit.getPlayer(this.getName());
+			bukkitPlayer = Bukkit.getPlayer(this.getLastName());
 		}
 		return bukkitPlayer;
 	}

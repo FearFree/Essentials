@@ -5,7 +5,8 @@
 package org.anjocaido.groupmanager.permissions;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -13,8 +14,8 @@ import java.util.Set;
 
 import org.anjocaido.groupmanager.GroupManager;
 import org.anjocaido.groupmanager.data.Group;
-import org.anjocaido.groupmanager.dataholder.WorldDataHolder;
 import org.anjocaido.groupmanager.data.User;
+import org.anjocaido.groupmanager.dataholder.WorldDataHolder;
 import org.anjocaido.groupmanager.utils.PermissionCheckResult;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -120,7 +121,8 @@ public class AnjoPermissionsHandler extends PermissionsReaderInterface {
 	@Override
 	public Set<String> getAllPlayersPermissions(String userName, Boolean includeChildren) {
 
-		Set<String> playerPermArray = new HashSet<String>();
+		Set<String> playerPermArray = new LinkedHashSet<String>();
+		Set<String> overrides = new LinkedHashSet<String>();
 
 		// Add the players own permissions.
 		playerPermArray.addAll(populatePerms(ph.getUser(userName).getPermissionList(), includeChildren));
@@ -133,7 +135,7 @@ public class AnjoPermissionsHandler extends PermissionsReaderInterface {
 			if (!alreadyProcessed.contains(group)) {
 				alreadyProcessed.add(group);
 
-				Set<String> groupPermArray = new HashSet<String>();
+				Set<String> groupPermArray = new LinkedHashSet<String>();
 
 				if (group.startsWith("g:") && GroupManager.getGlobalGroups().hasGroup(group)) {
 					// GlobalGroups
@@ -147,24 +149,86 @@ public class AnjoPermissionsHandler extends PermissionsReaderInterface {
 				// Add all group permissions, unless negated by earlier permissions.
 				for (String perm : groupPermArray) {
 					boolean negated = (perm.startsWith("-"));
+					
+					// Overridden (Exception) permission defeats negation.
+					if (perm.startsWith("+")) {
+						overrides.add(perm.substring(1));
+						continue;
+					}
+					
 					// Perm doesn't already exists and there is no negation for it
 					// or It's a negated perm where a normal perm doesn't exists (don't allow inheritance to negate higher perms)
-					if ((!negated && !playerPermArray.contains(perm) && !playerPermArray.contains("-" + perm)) || (negated && !playerPermArray.contains(perm.substring(1)) && !playerPermArray.contains("-" + perm)))
+					if ((!negated && !playerPermArray.contains(perm) && !wildcardNegation(playerPermArray, perm)) || (negated && !playerPermArray.contains(perm.substring(1)) && !wildcardNegation(playerPermArray, perm.substring(1))))
 						playerPermArray.add(perm);
+					
 				}
 			}
 
 		}
+		
+		// Process overridden permissions
+		
+		Iterator<String> itr = overrides.iterator();
+		
+		while (itr.hasNext()) {
+			
+			String node = itr.next();
+
+			if (playerPermArray.contains("-" + node)) {
+				playerPermArray.remove("-" + node);
+			}
+			
+			playerPermArray.add(node);
+			
+		}
+		
 		// Collections.sort(playerPermArray, StringPermissionComparator.getInstance());
 
 		return playerPermArray;
+	}
+	
+	/**
+	 * Is there a direct or wildcard negation in the list which covers this permission node.
+	 * 
+	 * @param playerPermArray
+	 * @param node
+	 * @return
+	 */
+	private boolean wildcardNegation(Set<String> playerPermArray, String node) {
+		
+		/*
+		 * Check for a negated parent with a wildcard or negated permission
+		 */
+		
+		if (playerPermArray.contains("-" + node))
+			return true;
+		
+		final String[] parts = node.split("\\.");
+		final StringBuilder builder = new StringBuilder(node.length());
+		for (String part : parts) {
+			builder.append('*');
+			if (playerPermArray.contains("-" + builder.toString())) {
+				GroupManager.logger.fine("Wildcard Negation found for " + node);
+				return true;
+			}
+
+			builder.deleteCharAt(builder.length() - 1);
+			builder.append(part).append('.');
+		}
+		
+		/*
+		 * No negated parent found so return false.
+		 */
+		GroupManager.logger.fine("No Negation found for " + node);
+		return false;
+		
 	}
 
 	private Set<String> populatePerms(List<String> permsList, boolean includeChildren) {
 
 		// Create a new array so it's modifiable.
 		List<String> perms = new ArrayList<String>(permsList);
-		Set<String> permArray = new HashSet<String>();
+		Set<String> permArray = new LinkedHashSet<String>();
 		Boolean allPerms = false;
 
 		// Allow * node to populate ALL permissions to Bukkit.
@@ -175,9 +239,8 @@ public class AnjoPermissionsHandler extends PermissionsReaderInterface {
 			// Remove the no offline perms node as this should not be given.
 			perms.remove("groupmanager.noofflineperms");
 		}
-
+		
 		for (String perm : perms) {
-
 			/**
 			 * all permission sets are passed here pre-sorted, alphabetically.
 			 * This means negated nodes will be processed before all permissions
@@ -199,7 +262,7 @@ public class AnjoPermissionsHandler extends PermissionsReaderInterface {
 				 */
 				if ((includeChildren) || (negated && allPerms)) {
 
-					Map<String, Boolean> children = GroupManager.BukkitPermissions.getAllChildren((negated ? perm.substring(1) : perm), new HashSet<String>());
+					Map<String, Boolean> children = GroupManager.BukkitPermissions.getAllChildren((negated ? perm.substring(1) : perm), new LinkedHashSet<String>());
 
 					if (children != null) {
 						if (negated)
@@ -835,27 +898,65 @@ public class AnjoPermissionsHandler extends PermissionsReaderInterface {
 
 		PermissionCheckResult resultUser = checkUserOnlyPermission(user, targetPermission);
 		if (resultUser.resultType != PermissionCheckResult.Type.NOTFOUND) {
+			
 			resultUser.accessLevel = targetPermission;
-			return resultUser;
+			
+			if (resultUser.resultType == PermissionCheckResult.Type.EXCEPTION) {
+				return resultUser;
+			}
+			
+			result = resultUser;
+			
 		}
 
-		// IT ONLY CHECKS GROUPS PERMISSIONS IF RESULT FOR USER IS NOT FOUND
+		// IT ONLY CHECKS GROUPS PERMISSIONS IF RESULT FOR USER IS NOT AN EXCEPTION
 		PermissionCheckResult resultGroup = checkGroupPermissionWithInheritance(user.getGroup(), targetPermission);
 		if (resultGroup.resultType != PermissionCheckResult.Type.NOTFOUND) {
+			
 			resultGroup.accessLevel = targetPermission;
-			return resultGroup;
+			
+			if (resultGroup.resultType == PermissionCheckResult.Type.EXCEPTION) {
+				return resultGroup;
+			}
+			
+			// Do not override higher level permissions with negations.
+			if (result.resultType == PermissionCheckResult.Type.NOTFOUND) {
+				result = resultGroup;
+			}
+			
 		}
+		
+		// Do we have a high level negation?
+		boolean negated = (result.resultType == PermissionCheckResult.Type.NEGATION);
 
 		// SUBGROUPS CHECK
 		for (Group subGroup : user.subGroupListCopy()) {
+			
 			PermissionCheckResult resultSubGroup = checkGroupPermissionWithInheritance(subGroup, targetPermission);
 			if (resultSubGroup.resultType != PermissionCheckResult.Type.NOTFOUND) {
+				
 				resultSubGroup.accessLevel = targetPermission;
-				return resultSubGroup;
+				
+				// Allow exceptions to override higher level negations
+				// but low level negations can not remove higher level permissions.
+				if (resultSubGroup.resultType == PermissionCheckResult.Type.EXCEPTION) {
+					
+					return resultSubGroup;
+					
+				} else if ((resultSubGroup.resultType == PermissionCheckResult.Type.FOUND) && (result.resultType != PermissionCheckResult.Type.NEGATION) && !negated) {
+					
+					result = resultSubGroup;
+					
+				} else if ((resultSubGroup.resultType == PermissionCheckResult.Type.NEGATION) && !negated) {
+					
+					result = resultSubGroup;
+				}
+				
 			}
 		}
 
 		// THEN IT RETURNS A NOT FOUND
+		// OR THE RESULT OF THE SUBGROUP SEARCH.
 		return result;
 	}
 
@@ -948,17 +1049,34 @@ public class AnjoPermissionsHandler extends PermissionsReaderInterface {
 		if (start == null || targetPermission == null) {
 			return null;
 		}
+		
 		LinkedList<Group> stack = new LinkedList<Group>();
 		List<Group> alreadyVisited = new ArrayList<Group>();
+		PermissionCheckResult result = new PermissionCheckResult();
+		
 		stack.push(start);
 		alreadyVisited.add(start);
+		
+		// Set defaults.
+		result.askedPermission = targetPermission;
+		result.resultType = PermissionCheckResult.Type.NOTFOUND;
+		
 		while (!stack.isEmpty()) {
 			Group now = stack.pop();
 			PermissionCheckResult resultNow = checkGroupOnlyPermission(now, targetPermission);
+			
 			if (!resultNow.resultType.equals(PermissionCheckResult.Type.NOTFOUND)) {
-				resultNow.accessLevel = targetPermission;
-				return resultNow;
+				
+				if (resultNow.resultType.equals(PermissionCheckResult.Type.EXCEPTION)) {
+					resultNow.accessLevel = targetPermission;
+					return resultNow;
+				}
+				
+				// Negation found so store for later
+				// as we need to continue looking for an Exception.
+				result = resultNow;
 			}
+			
 			for (String sonName : now.getInherits()) {
 				Group son = ph.getGroup(sonName);
 				if (son != null && !alreadyVisited.contains(son)) {
@@ -968,9 +1086,7 @@ public class AnjoPermissionsHandler extends PermissionsReaderInterface {
 				}
 			}
 		}
-		PermissionCheckResult result = new PermissionCheckResult();
-		result.askedPermission = targetPermission;
-		result.resultType = PermissionCheckResult.Type.NOTFOUND;
+		
 		return result;
 	}
 
